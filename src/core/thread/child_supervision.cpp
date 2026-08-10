@@ -188,6 +188,12 @@ void SupervisionListener::UpdateOnReceive(const Mac::Address &aSourceAddress, bo
     RestartTimer();
 
 exit:
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    if (Get<Mle::Mle>().IsWedStateAttached())
+    {
+        RestartTimer();
+    }
+#endif
     return;
 }
 
@@ -197,6 +203,12 @@ void SupervisionListener::RestartTimer(void)
     {
         mTimer.Start(Time::SecToMsec(mTimeout));
     }
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    else if (Get<Mle::Mle>().IsWedStateAttached())
+    {
+        mTimer.Start(Time::SecToMsec(mTimeout));
+    }
+#endif
     else
     {
         mTimer.Stop();
@@ -213,6 +225,14 @@ void SupervisionListener::HandleTimer(void)
     IgnoreError(Get<Mle::Mle>().SendChildUpdateRequestToParent());
 
 exit:
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    if (Get<Mle::Mle>().IsWedStateAttached())
+    {
+        Get<Mle::Mle>().Stop();
+        Get<Mle::Mle>().Start();
+        return;
+    }
+#endif
     RestartTimer();
 }
 

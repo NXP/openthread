@@ -737,6 +737,10 @@ public:
     bool IsCslSupported(void) const;
 #endif // OPENTHREAD_CONFIG_MAC_CSL_RECEIVER_ENABLE
 
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    bool IsWedStateAttached(void) const { return mWedState == kWedStateAttached; }
+#endif
+
 #if OPENTHREAD_CONFIG_WAKEUP_COORDINATOR_ENABLE
     /**
      * Attempts to wake a Wake-up End Device.
@@ -1523,6 +1527,20 @@ private:
     };
 #endif
 
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    enum WedState : uint8_t
+    {
+        kWedStateDisabled,          // WED feature not active. Initial state.
+        kWedStateWaitingForWakeup,  // Low-power wakeup listen mode, waiting for a wake-up frame.
+        kWedStateParentRequest,     // Wake-up frame received, Parent Request sent, waiting for Parent Response.
+        kWedStateChildIdRequest,    // Parent Response received, Child ID Request sent, waiting for Child ID Response.
+        kWedStateAttached,          // Successfully attached to parent.
+    };
+
+    WedState GetWedState(void) const { return mWedState; }
+    void     SetWedState(WedState aState);
+#endif
+
     //------------------------------------------------------------------------------------------------------------------
     // Nested types
 
@@ -1900,6 +1918,10 @@ private:
 
 #if OPENTHREAD_CONFIG_MLE_PARENT_RESPONSE_CALLBACK_API_ENABLE
         Callback<otThreadParentResponseCallback> mParentResponseCallback;
+#endif
+
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+        void HandleECslWakeup(const Mac::WakeupInfo &aWakeupInfo);
 #endif
     private:
         enum State : uint8_t
@@ -2494,6 +2516,10 @@ private:
     WedAttachState           mWedAttachState;
     WedAttachTimer           mWedAttachTimer;
     Callback<WakeupCallback> mWakeupCallback;
+#endif
+
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    WedState        mWedState;
 #endif
 
 #if OPENTHREAD_FTD

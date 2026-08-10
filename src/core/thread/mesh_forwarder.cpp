@@ -83,6 +83,9 @@ MeshForwarder::MeshForwarder(Instance &aInstance)
     , mIndirectSender(aInstance)
 #endif
     , mDataPollSender(aInstance)
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    , mEnhCslSender(aInstance)
+#endif
 {
 #if OPENTHREAD_CONFIG_TX_QUEUE_STATISTICS_ENABLE
     mTxQueueStats.Clear();

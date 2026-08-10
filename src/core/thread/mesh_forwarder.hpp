@@ -85,6 +85,9 @@ class MeshForwarder : public InstanceLocator, private NonCopyable
     friend class Mle::DiscoverScanner;
     friend class TimeTicker;
     friend class ot::MessagePool;
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    friend class EnhCslSender;
+#endif
 
 public:
     /**
@@ -575,7 +578,9 @@ private:
 #endif
 
     DataPollSender mDataPollSender;
-
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    EnhCslSender mEnhCslSender;
+#endif
 #if OPENTHREAD_CONFIG_TX_QUEUE_STATISTICS_ENABLE
     TxQueueStats mTxQueueStats;
 #endif

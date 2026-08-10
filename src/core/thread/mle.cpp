@@ -79,6 +79,9 @@ Mle::Mle(Instance &aInstance)
     , mWedAttachState(kWedDetached)
     , mWedAttachTimer(aInstance)
 #endif
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    , mWedState(kWedStateDisabled)
+#endif
 #if OPENTHREAD_FTD
     , mRouterEligible(true)
     , mAddressSolicitPending(false)
@@ -215,6 +218,16 @@ Error Mle::Start(StartMode aMode)
 
     Get<KeyManager>().Start();
 
+#if OPENTHREAD_CONFIG_PARENT_SEARCH_ENABLE
+    mParentSearch.SetEnabled(true);
+#endif
+
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    Get<Mac::Mac>().SetCslPeriod(0);
+    SetWedState(kWedStateWaitingForWakeup);
+    Get<SupervisionListener>().Stop();
+#endif
+
     mAttacher.Start(aMode);
 
 exit:
@@ -242,6 +255,14 @@ void Mle::Stop(StopMode aMode)
     Get<ThreadNetif>().RemoveUnicastAddress(mMeshLocalEid);
 
     SetRole(kRoleDisabled);
+
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    SetWedState(kWedStateDisabled);
+#endif
+
+    // Set to default values
+    Get<SupervisionListener>().SetInterval(OPENTHREAD_CONFIG_CHILD_SUPERVISION_INTERVAL);
+    Get<SupervisionListener>().SetTimeout(OPENTHREAD_CONFIG_CHILD_SUPERVISION_CHECK_TIMEOUT);
 
 exit:
     mDetacher.HandleStop();
@@ -1245,6 +1266,13 @@ Error Mle::SendChildUpdateRequestToParent(ChildUpdateRequestMode aMode)
 
     Log(kMessageSend, kTypeChildUpdateRequestAsChild, destination);
 
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    if (IsWedStateAttached())
+    {
+        Get<MeshForwarder>().SetRxOnWhenIdle(true);
+    }
+    else
+#endif
     if (!IsRxOnWhenIdle())
     {
         Get<MeshForwarder>().SetRxOnWhenIdle(false);
@@ -2470,6 +2498,13 @@ void Mle::HandleChildUpdateResponseOnChild(RxInfo &aRxInfo)
         }
 #endif
 
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+        if (IsWedStateAttached())
+        {
+            Get<MeshForwarder>().SetRxOnWhenIdle(true);
+        }
+        else
+#endif
         if (!IsRxOnWhenIdle())
         {
             Get<DataPollSender>().SetAttachMode(false);
@@ -3081,11 +3116,41 @@ exit:
 #if OPENTHREAD_CONFIG_WAKEUP_END_DEVICE_ENABLE
 void Mle::HandleWakeupFrame(const Mac::WakeupInfo &aWakeupInfo)
 {
-    OT_UNUSED_VARIABLE(aWakeupInfo);
-
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+#if OPENTHREAD_CONFIG_PARENT_SEARCH_ENABLE
+    mParentSearch.SetEnabled(false);
+#endif
+    mAttacher.HandleECslWakeup(aWakeupInfo);
+#endif
 #if OPENTHREAD_CONFIG_P2P_ENABLE
     mP2p.HandleP2pWakeup(aWakeupInfo);
 #endif
+}
+#endif
+
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+extern "C" void PWR_AllowDeviceToSleep();
+extern "C" void PWR_DisallowDeviceToSleep();
+
+static uint32_t wed_no_lp = 0;
+
+void Mle::SetWedState(WedState aState)
+{
+    if (mWedState != aState)
+    {
+        mWedState = aState;
+    }
+
+    if ((mWedState == kWedStateParentRequest) && !wed_no_lp)
+    {
+        wed_no_lp = 1;
+        PWR_DisallowDeviceToSleep();
+    }
+    else if (((mWedState == kWedStateDisabled) || (mWedState == kWedStateWaitingForWakeup)) && wed_no_lp)
+    {
+        wed_no_lp = 0;
+        PWR_AllowDeviceToSleep();
+    }
 }
 #endif
 
@@ -4438,6 +4503,7 @@ void Mle::Attacher::Attach(AttachMode aMode)
     }
 
     mParentCandidate.Clear();
+
     SetState(kStateStart);
     mMode = aMode;
 
@@ -4644,7 +4710,9 @@ void Mle::Attacher::HandleTimer(void)
     uint32_t          delay          = 0;
     bool              shouldAnnounce = true;
     ParentRequestType type;
-
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    static bool       mParentReqSent = false;
+#endif
     // First, check if we are waiting to receive parent responses and
     // found an acceptable parent candidate.
 
@@ -4654,6 +4722,43 @@ void Mle::Attacher::HandleTimer(void)
         delay = kChildIdResponseTimeout;
         ExitNow();
     }
+
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    {
+        WedState wedState = Get<Mle>().GetWedState();
+
+        // Enable wakeup listening and stop the supervision listener when the WED state machine is
+        // waiting for wakeup, or when it is disabled and an attach attempt is just starting. In any
+        // other WED state, there is nothing to do here, so exit early.
+        if ((wedState == kWedStateWaitingForWakeup) || ((wedState == kWedStateDisabled) && (mState == kStateStart)))
+        {
+            IgnoreError(Get<Mac::Mac>().SetWakeupListenEnabled(true));
+            Get<SupervisionListener>().Stop();
+            Get<Mle>().SetWedState(kWedStateWaitingForWakeup);
+            mParentReqSent = false;
+        }
+        else if ((wedState == kWedStateParentRequest) && (!mParentReqSent))
+        {
+            SendParentRequest(kToRoutersAndReeds);
+            Get<MeshForwarder>().SetRxOnWhenIdle(true);
+            delay = kParentRequestRouterTimeout;
+            mParentReqSent = true;
+            ExitNow();
+        }
+        else if (((wedState == kWedStateParentRequest) && (mParentReqSent)) || (wedState == kWedStateChildIdRequest))
+        {
+            // Timeout waiting for parent response or child ID response in WED request state
+            Get<Mle>().Stop();
+            Get<Mle>().Start();
+            mParentReqSent = false;
+            ExitNow();
+        }
+        else if (wedState != kWedStateDisabled)
+        {
+            ExitNow();
+        }
+    }
+#endif
 
     switch (mState)
     {
@@ -4670,7 +4775,6 @@ void Mle::Attacher::HandleTimer(void)
         mReceivedResponseFromParent = false;
         mParentRequestCounter       = 0;
         Get<MeshForwarder>().SetRxOnWhenIdle(true);
-
         OT_FALL_THROUGH;
 
     case kStateParentRequest:
@@ -4803,13 +4907,11 @@ uint32_t Mle::Attacher::Reattach(void)
             // If already attached (e.g., trying to find a better
             // parent or partition), and attach fails, we revert to
             // sleepy operation if needed and stop the attach process.
-
             if (!Get<Mle>().IsRxOnWhenIdle())
             {
                 Get<DataPollSender>().SetAttachMode(false);
                 Get<MeshForwarder>().SetRxOnWhenIdle(false);
             }
-
             ExitNow();
         }
 
@@ -4899,6 +5001,13 @@ void Mle::Attacher::SendParentRequest(ParentRequestType aType)
         destination = Ip6::Address::GetLinkLocalAllRoutersMulticast();
     }
 
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    if (Get<Mle>().GetWedState() == kWedStateParentRequest)
+    {
+        destination.SetToLinkLocalAddress(GetParentCandidate().GetExtAddress());
+    }
+#endif
+
     SuccessOrExit(error = message->SendTo(destination));
 
     switch (aType)
@@ -4917,6 +5026,37 @@ exit:
     FreeMessageOnError(message, error);
 }
 
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+void Mle::Attacher::HandleECslWakeup(const Mac::WakeupInfo &aWakeupInfo)
+{
+    Get<Mle>().SetWedState(kWedStateParentRequest);
+    GetParentCandidate().SetExtAddress(aWakeupInfo.mExtAddress);
+    GetParentCandidate().SetEnhCslPeriod(0);
+    GetParentCandidate().SetEnhCslPhase(0);
+    GetParentCandidate().SetEnhCslSynchronized(true);
+    GetParentCandidate().SetEnhCslLastHeard(TimerMilli::GetNow());
+
+    // Move MLE to idle so the wakeup-end device (WED) drives the attach,
+    // then issue the parent request in response to the wakeup frame during the connection window
+    mTimer.Stop();
+    SetState(kStateIdle);
+
+    if (aWakeupInfo.mAttachDelayMs > 0)
+    {
+        mTimer.Start(aWakeupInfo.mAttachDelayMs);
+    }
+    else
+    {
+        // Use immediate timer callback if no delay
+        HandleTimer();
+    }
+
+    // WED config is different than default
+    Get<SupervisionListener>().SetInterval(OPENTHREAD_CONFIG_WED_CHILD_SUPERVISION_INTERVAL);
+    Get<SupervisionListener>().SetTimeout(OPENTHREAD_CONFIG_WED_CHILD_SUPERVISION_CHECK_TIMEOUT);
+}
+#endif
+
 void Mle::Attacher::HandleChildIdRequestTxDone(const otMessage *aMessage, otError aError, void *aContext)
 {
     OT_UNUSED_VARIABLE(aError);
@@ -4926,10 +5066,15 @@ void Mle::Attacher::HandleChildIdRequestTxDone(const otMessage *aMessage, otErro
 
 void Mle::Attacher::HandleChildIdRequestTxDone(const Message &aMessage)
 {
-    if (aMessage.GetTxSuccess() && !Get<Mle>().IsRxOnWhenIdle())
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    if (Get<Mle>().GetWedState() == kWedStateDisabled)
+#endif
     {
-        Get<DataPollSender>().SetAttachMode(true);
-        Get<MeshForwarder>().SetRxOnWhenIdle(false);
+        if (aMessage.GetTxSuccess() && !Get<Mle>().IsRxOnWhenIdle())
+        {
+            Get<DataPollSender>().SetAttachMode(true);
+            Get<MeshForwarder>().SetRxOnWhenIdle(false);
+        }
     }
 
     if (aMessage.IsLinkSecurityEnabled() && (mState == kStateChildIdRequest))
@@ -5104,7 +5249,7 @@ void Mle::Attacher::HandleParentResponse(RxInfo &aRxInfo)
     uint16_t         sourceAddress;
     LeaderData       leaderData;
     uint8_t          linkMarginOut;
-    uint8_t          twoWayLinkMargin;
+    uint8_t          twoWayLinkMargin = 0;
     Connectivity     connectivity;
     uint32_t         linkFrameCounter;
     uint32_t         mleFrameCounter;
@@ -5112,6 +5257,16 @@ void Mle::Attacher::HandleParentResponse(RxInfo &aRxInfo)
     Mac::CslAccuracy cslAccuracy;
 #if OPENTHREAD_CONFIG_TIME_SYNC_ENABLE
     TimeParameterTlv timeParameterTlv;
+#endif
+
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    /* Receiving a parent response while the WED state machine is still waiting for wakeup means
+       the device will not join as a WED device, so disable the WED state and stop wakeup listening. */
+    if (Get<Mle>().GetWedState() == kWedStateWaitingForWakeup)
+    {
+        Get<Mle>().SetWedState(kWedStateDisabled);
+        Get<Mac::Mac>().SetWakeupListenEnabled(false);
+    }
 #endif
 
     SuccessOrExit(error = Tlv::Find<SourceAddressTlv>(aRxInfo.mMessage, sourceAddress));
@@ -5132,11 +5287,15 @@ void Mle::Attacher::HandleParentResponse(RxInfo &aRxInfo)
     }
 
     SuccessOrExit(error = aRxInfo.mMessage.ReadLeaderDataTlv(leaderData));
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    if (Get<Mle>().GetWedState() != kWedStateParentRequest)
+#endif
+    {
+        SuccessOrExit(error = Tlv::Find<LinkMarginTlv>(aRxInfo.mMessage, linkMarginOut));
+        twoWayLinkMargin = Min(Get<Mac::Mac>().ComputeLinkMargin(rss), linkMarginOut);
 
-    SuccessOrExit(error = Tlv::Find<LinkMarginTlv>(aRxInfo.mMessage, linkMarginOut));
-    twoWayLinkMargin = Min(Get<Mac::Mac>().ComputeLinkMargin(rss), linkMarginOut);
-
-    SuccessOrExit(error = aRxInfo.mMessage.ReadConnectivityTlv(connectivity));
+        SuccessOrExit(error = aRxInfo.mMessage.ReadConnectivityTlv(connectivity));
+    }
 
 #if OPENTHREAD_CONFIG_MAC_CSL_RECEIVER_ENABLE
     switch (aRxInfo.mMessage.ReadCslClockAccuracyTlv(cslAccuracy))
@@ -5280,6 +5439,18 @@ void Mle::Attacher::HandleParentResponse(RxInfo &aRxInfo)
     mParentCandidate.mLeaderData   = leaderData;
     mParentCandidate.mLinkMargin   = twoWayLinkMargin;
 
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    if (Get<Mle>().GetWedState() == kWedStateParentRequest)
+    {
+        mTimer.Stop();
+        SendChildIdRequest();
+        SetState(kStateChildIdRequest);
+        Get<MeshForwarder>().SetRxOnWhenIdle(true);
+        mTimer.Start(kChildIdResponseTimeout);
+        Get<Mle>().SetWedState(kWedStateChildIdRequest);
+    }
+#endif
+
 exit:
     LogProcessError(kTypeParentResponse, error);
 }
@@ -5372,6 +5543,15 @@ void Mle::Attacher::HandleChildIdResponse(RxInfo &aRxInfo)
 
     Get<Mle>().SetStateChild(shortAddress);
 
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    if (Get<Mle>().GetWedState() == kWedStateChildIdRequest)
+    {
+        Get<Mle>().SetWedState(kWedStateAttached);
+        Get<SupervisionListener>().Start();
+        Get<MeshForwarder>().SetRxOnWhenIdle(true);
+    }
+    else
+#endif
     if (!Get<Mle>().IsRxOnWhenIdle())
     {
         Get<DataPollSender>().SetAttachMode(false);
@@ -5381,7 +5561,6 @@ void Mle::Attacher::HandleChildIdResponse(RxInfo &aRxInfo)
     {
         Get<MeshForwarder>().SetRxOnWhenIdle(true);
     }
-
     aRxInfo.mClass = RxInfo::kPeerMessage;
 
 exit:

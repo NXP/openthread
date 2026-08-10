@@ -331,7 +331,7 @@ void DataPollSender::ProcessTxDone(const Mac::TxFrame &aFrame, const Mac::RxFram
     VerifyOrExit(Get<Mle::Mle>().GetParent().IsEnhancedKeepAliveSupported());
     VerifyOrExit(aFrame.GetSecurityEnabled());
 
-#if OPENTHREAD_CONFIG_MAC_CSL_RECEIVER_ENABLE
+#if OPENTHREAD_CONFIG_MAC_CSL_RECEIVER_ENABLE && !OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
     if (aFrame.mInfo.mTxInfo.mIsARetx && aFrame.HasCslIe())
     {
         // For retransmission frame, use a data poll to resync its parent with correct CSL phase
