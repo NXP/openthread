@@ -417,6 +417,61 @@ private:
 
     uint8_t mConnectionWindow;
 } OT_TOOL_PACKED_END;
+
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+/**
+ * This class implements CST (Coordinated Sampled Transmitting) IE data structure.
+ *
+ * The CST IE has the same contents but different semantics than the CSL IE
+ * defined below. While the CSL IE is used to inform a peer device about the
+ * listening timings of the present device, the CST IE is used to configure the
+ * listening phase and period on a peer device.
+ */
+OT_TOOL_PACKED_BEGIN
+class CstIe : public VendorIeHeader
+{
+public:
+    static constexpr uint8_t kHeaderIeId      = ThreadIe::kHeaderIeId;
+    static constexpr uint8_t kIeContentSize   = ThreadIe::kIeContentSize + sizeof(uint16_t) * 2;
+    static constexpr uint8_t kThreadIeSubtype = 0x02;
+
+    /**
+     * This method returns the CST Period.
+     *
+     * @returns the CST Period.
+     *
+     */
+    uint16_t GetPeriod(void) const { return LittleEndian::ReadUint16(mPeriod); }
+
+    /**
+     * This method sets the CST Period.
+     *
+     * @param[in]  aPeriod  The CST Period.
+     *
+     */
+    void SetPeriod(uint16_t aPeriod) { LittleEndian::WriteUint16(aPeriod, mPeriod); }
+
+    /**
+     * This method returns the CST Phase.
+     *
+     * @returns the CST Phase.
+     *
+     */
+    uint16_t GetPhase(void) const { return LittleEndian::ReadUint16(mPhase); }
+
+    /**
+     * This method sets the CST Phase.
+     *
+     * @param[in]  aPhase  The CST Phase.
+     *
+     */
+    void SetPhase(uint16_t aPhase) { LittleEndian::WriteUint16(aPhase, mPhase); }
+
+private:
+    uint8_t mPhase[2];
+    uint8_t mPeriod[2];
+} OT_TOOL_PACKED_END;
+#endif
 #endif // OPENTHREAD_CONFIG_WAKEUP_COORDINATOR_ENABLE || OPENTHREAD_CONFIG_WAKEUP_END_DEVICE_ENABLE
 
 /**

@@ -61,6 +61,9 @@
 #include "thread/network_data_types.hpp"
 #include "thread/radio_selector.hpp"
 #include "thread/version.hpp"
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+#include "thread/enh_csl_sender.hpp"
+#endif
 
 namespace ot {
 
@@ -75,6 +78,10 @@ class Neighbor : public InstanceLocatorInit
 #if OPENTHREAD_CONFIG_RADIO_LINK_TREL_ENABLE
     ,
                  public Trel::NeighborInfo
+#endif
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    ,
+                 public EnhCslSender::EnhCslPeerInfo
 #endif
 {
 public:

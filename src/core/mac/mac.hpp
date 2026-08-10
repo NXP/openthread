@@ -215,6 +215,9 @@ public:
      */
     void RequestCslFrameTransmission(uint32_t aDelay);
 #endif
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    void RequestEnhCslFrameTransmission(uint32_t aDelay);
+#endif
 
 #if OPENTHREAD_CONFIG_WAKEUP_COORDINATOR_ENABLE
     /**
@@ -782,6 +785,9 @@ private:
 #if OPENTHREAD_CONFIG_MAC_CSL_TRANSMITTER_ENABLE
         kOperationTransmitDataCsl,
 #endif
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+        kOperationTransmitDataEnhCsl,
+#endif
 #if OPENTHREAD_CONFIG_WAKEUP_COORDINATOR_ENABLE
         kOperationTransmitWakeup,
 #endif
@@ -863,6 +869,10 @@ private:
     Error HandleWakeupFrame(const RxFrame &aFrame);
     void  UpdateWakeupListening(void);
 #endif
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    void ProcessEnhCsl(const RxFrame &aFrame);
+    void ApplyEnhCsl(void);
+#endif
     static const char *OperationToString(Operation aOperation);
 
     using OperationTask = TaskletIn<Mac, &Mac::PerformNextOperation>;
@@ -882,6 +892,16 @@ private:
 #endif
 #if OPENTHREAD_CONFIG_WAKEUP_END_DEVICE_ENABLE
     bool mWakeupListenEnabled : 1;
+#endif
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    bool mCslIeSet;
+    bool mCstIeSet;
+    uint16_t mCslIePeriod;
+    uint16_t mCslIePhase;
+    uint16_t mCstIePeriod;
+    uint16_t mCstIePhase;
+    uint64_t mCslPeerTimestamp;
+    TimeMilli mEnhCslTxFireTime;
 #endif
     Operation   mOperation;
     uint16_t    mPendingOperations;

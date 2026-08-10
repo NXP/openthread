@@ -32,6 +32,9 @@
  */
 
 #include "mesh_forwarder.hpp"
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+#include "instance/instance.hpp"
+#endif
 
 #if OPENTHREAD_MTD
 
@@ -41,10 +44,22 @@ void MeshForwarder::SendMessage(OwnedPtr<Message> aMessagePtr)
 {
     Message &message = *aMessagePtr.Release();
 
-    message.SetDirectTransmission();
-    message.SetOffset(0);
-    message.SetDatagramTag(0);
-    message.SetTimestampToNow();
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    Neighbor *neighbor = mEnhCslSender.GetParent();
+
+    if ((neighbor != nullptr) && neighbor->IsEnhCslSynchronized())
+    {
+        // Destined for an enhanced CSL peer
+        mEnhCslSender.AddMessageForCslPeer(message, *neighbor);
+    }
+    else
+#endif
+    {
+        message.SetDirectTransmission();
+        message.SetOffset(0);
+        message.SetDatagramTag(0);
+        message.SetTimestampToNow();
+    }
 
     mSendQueue.Enqueue(message);
     mScheduleTransmissionTask.Post();

@@ -559,6 +559,15 @@
 #endif
 
 /**
+ * @def OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+ *
+ * This setting configures eCSL feature.
+ */
+#ifndef OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+#define OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE 0
+#endif
+
+/**
  * @}
  */
 

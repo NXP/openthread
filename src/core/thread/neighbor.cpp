@@ -105,6 +105,10 @@ void Neighbor::Init(Instance &aInstance)
     InstanceLocatorInit::Init(aInstance);
     mLinkInfo.Init(aInstance);
     SetState(kStateInvalid);
+
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+    EnhCslSender::EnhCslPeerInfo::Init();
+#endif
 }
 
 bool Neighbor::IsStateValidOrAttaching(void) const

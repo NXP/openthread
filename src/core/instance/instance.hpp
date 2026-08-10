@@ -844,6 +844,10 @@ template <> inline PeerTable &Instance::Get(void) { return mMle.mP2p.mPeerTable;
 template <> inline WakeupTxScheduler &Instance::Get(void) { return mMle.mWakeupTxScheduler; }
 #endif
 
+#if OPENTHREAD_CONFIG_ENHANCED_CSL_ENABLE
+template <> inline EnhCslSender &Instance::Get(void) { return mMeshForwarder.mEnhCslSender; }
+#endif
+
 template <> inline Ip6::Netif &Instance::Get(void) { return mThreadNetif; }
 
 template <> inline ThreadNetif &Instance::Get(void) { return mThreadNetif; }
